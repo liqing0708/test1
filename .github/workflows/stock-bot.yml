@@ -23,4 +23,5 @@ jobs:
       - name: Run Bot
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}  # <--- 新增这一行
         run: python main.py
