@@ -55,7 +55,7 @@ if __name__ == "__main__":
     if isinstance(data, str):
         msg = f"❌ 运行出错:\n{data}"
     else:
-        msg = f"🔥 AIAgent 概念热度 Top10\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+        msg = f"🔥 AIAgent 概念热度股票或通知 Top10\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
         for i, row in data.iterrows():
             msg += f"{row['代码']} {row['名称']} | 涨幅:{row['涨跌幅']}% | 热度:{int(row['total_score'])}\n"
     
