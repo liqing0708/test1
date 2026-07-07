@@ -1,95 +1,94 @@
-import tushare as ts
 import requests
-import os
 import pandas as pd
+import os
 from datetime import datetime
 
-def get_stock_data():
-    """使用 Tushare 获取 AI 智能体概念股票数据"""
-    token = os.environ.get('TUSHARE_TOKEN')
-    if not token:
-        return "错误：未配置 TUSHARE_TOKEN 环境变量"
-
+def get_stock_data_sina():
+    """
+    使用新浪财经接口获取数据
+    这里模拟获取“AI智能体”相关股票，由于新浪没有直接的概念API，
+    我们通常只能获取特定列表或大盘数据。
+    为了演示，这里改为获取 '沪深300' 中涨幅靠前的股票作为替代，
+    或者你可以维护一个固定的 'AI概念股代码列表'。
+    """
+    
+    # 方案 A: 如果你有固定的 AI 股代码列表 (最稳定)
+    # symbol_list = ["sh601360", "sz002230", "sh600519"] # 示例代码
+    # 这种方案最稳，不会变，但需要你自己去搜集代码。
+    
+    # 方案 B: 尝试通过新浪接口获取部分数据 (不稳定，仅作演示)
+    # 由于新浪没有直接的"概念板块"API，我们这里用一种取巧的方式：
+    # 假设你关注的是热门科技股，我们可以硬编码几个核心标的，
+    # 或者使用 pytdx (通达信数据) 等本地库，但在 GitHub Actions 上 pytdx 也容易连不上。
+    
+    # 鉴于你在 GitHub Actions 上遇到的网络问题，
+    # 【强烈建议】使用方案 A：手动维护一个你看好的 AI 股票池。
+    
+    # 这里为你提供一个包含常见 AI 龙头的代码池 (仅作示例，你可以修改)
+    stock_pool = [
+        "sh601360", "sz002230", "sz002049", "sh603019", 
+        "sz002415", "sh600570", "sz000977", "sh601138",
+        "sz300418", "sz002371"
+    ]
+    
     try:
-        # 初始化 Tushare
-        ts.set_token(token)
-        pro = ts.pro_api()
-
-        # 1. 查找“AI智能体”或相关概念的 ID
-        # Tushare 的概念接口需要 concept_id，我们需要先搜一下
-        # 注意：不同数据源对概念命名不同，这里尝试搜索包含 'AI' 或 '人工智能' 的概念
-        # 如果搜不到，可能需要手动指定一个已知的 ID，或者换成 '沪深300' 等宽基指数测试
+        # 构造新浪批量查询接口
+        symbols_str = ",".join(stock_pool)
+        url = f"https://hq.sinajs.cn/list={symbols_str}"
         
-        # 这里我们尝试获取“人工智能”相关概念（ID通常固定，或者通过 search 接口找）
-        # 为了演示稳定性，这里直接使用 Tushare 的 concept_detail 接口
-        # 假设我们要查的是“人工智能”概念 (ID: TS009688 仅为示例，实际需动态获取或硬编码)
+        # 必须加 Referer，否则新浪会拒绝请求
+        headers = {
+            "Referer": "https://finance.sina.com.cn",
+            "User-Agent": "Mozilla/5.0"
+        }
         
-        # --- 简化方案：为了确保你能跑通，我们先获取“上证50”或“沪深300”作为替代 ---
-        # 因为概念板块的 ID 经常变，且需要积分权限。
-        # 如果你确定有权限查概念，可以使用下面的逻辑。
+        resp = requests.get(url, headers=headers)
+        resp.encoding = 'gbk' # 新浪接口是 GBK 编码
         
-        # 尝试获取概念列表中包含 "AI" 的
-        df_concepts = pro.concept() 
-        target_id = None
-        for index, row in df_concepts.iterrows():
-            if 'AI' in str(row['name']) or '智能' in str(row['name']):
-                target_id = row['code']
-                print(f"找到概念: {row['name']} (ID: {target_id})")
-                break
+        data_list = []
+        for line in resp.text.split('\n'):
+            if '=' in line and 'var hq_str_' in line:
+                # 解析数据
+                parts = line.split('=')
+                code_full = parts[0].split('_')[-1]
+                values = parts[1].strip('"').split(',')
+                
+                if len(values) > 30:
+                    name = values[0]
+                    current_price = float(values[3])
+                    open_price = float(values[1])
+                    pre_close = float(values[2])
+                    
+                    # 计算涨跌幅
+                    if pre_close > 0:
+                        change_pct = (current_price - pre_close) / pre_close * 100
+                    else:
+                        change_pct = 0
+                    
+                    # 获取成交额 (values[9] 通常是成交额，单位元)
+                    volume_money = float(values[9]) if values[9] else 0
+                    
+                    data_list.append({
+                        '名称': name,
+                        '代码': code_full,
+                        '现价': current_price,
+                        '涨跌幅': round(change_pct, 2),
+                        '成交额': volume_money
+                    })
         
-        if not target_id:
-            # 如果找不到 AI 概念， fallback 到 沪深300 保证程序不报错
-            print("未找到特定 AI 概念，切换至沪深300成分股进行测试...")
-            # 获取沪深300成分股
-            hs300 = pro.index_weight(index_code='399300.SZ', start_date='20231027', end_date='20231027') # 日期随便填，只要有权重即可
-            codes = hs300['con_code'].tolist()
-            # 取前20个测试，避免积分不够
-            codes = codes[:20] 
-        else:
-            # 获取该概念的成分股
-            df_members = pro.concept_detail(id=target_id, fields='ts_code,name,weight')
-            codes = df_members['ts_code'].tolist()
-
-        # 2. 批量获取这些股票的行情数据
-        # 注意：Tushare 免费版每日调用次数有限，这里只取前 30 只股票进行演示
-        # 如果你有更高积分，可以去掉 [:30]
-        target_codes = ",".join(codes[:30]) 
+        df = pd.DataFrame(data_list)
         
-        print(f"正在获取 {len(codes[:30])} 只股票的行情...")
-        df_daily = pro.daily(ts_code=target_codes, trade_date=datetime.now().strftime('%Y%m%d'))
-        
-        # 如果今天还没收盘或没数据，取最近一天
-        if df_daily.empty:
-             # 简单处理：如果是周末或晚上，可能没当日数据，这里暂略过复杂日期回退逻辑
-             return "今日暂无交易数据或非交易日"
-
-        # 3. 计算热度分 (涨跌幅 * 成交额权重)
-        df_daily['change_pct'] = pd.to_numeric(df_daily['change'], errors='coerce')
-        df_daily['amount'] = pd.to_numeric(df_daily['amount'], errors='coerce')
-        
-        # 简单的打分逻辑：涨幅排名 60% + 成交额排名 40%
-        df_daily['score_change'] = df_daily['change_pct'].rank(pct=True) * 60
-        df_daily['score_amount'] = df_daily['amount'].rank(pct=True) * 40
-        df_daily['total_score'] = df_daily['score_change'] + df_daily['score_amount']
-        
-        # 取 Top 10
-        top10 = df_daily.nlargest(10, 'total_score')
-        
-        result_list = []
-        for _, row in top10.iterrows():
-            result_list.append({
-                'name': row.get('ts_code', ''), # Tushare返回的是代码，名称需要额外映射，这里简化显示代码
-                'change': row['change_pct'],
-                'score': int(row['total_score'])
-            })
+        if df.empty:
+            return "未获取到任何股票数据，可能是接口被封或代码错误。"
             
-        return result_list
-
+        # 按成交额排序取前10 (模拟热度)
+        df = df.nlargest(10, '成交额')
+        return df
+        
     except Exception as e:
-        return f"Tushare 接口报错: {str(e)}"
+        return f"抓取新浪数据失败: {str(e)}"
 
 def send_message(content):
-    """推送到 Webhook (钉钉/企微/飞书)"""
     webhook_url = os.environ.get('WEBHOOK_URL')
     if not webhook_url:
         print("错误：未找到 WEBHOOK_URL")
@@ -97,33 +96,27 @@ def send_message(content):
 
     headers = {'Content-Type': 'application/json'}
     
-    # 钉钉格式
-    payload = {
-        "msgtype": "text",
-        "text": {"content": content}
-    }
-    
-    # 如果你想兼容其他平台，可以在这里加判断，目前默认按钉钉发
-    
-    try:
-        resp = requests.post(webhook_url, json=payload, headers=headers)
-        print(f"发送结果: {resp.status_code}, {resp.text}")
-    except Exception as e:
-        print(f"发送失败: {e}")
+    # 自动识别平台
+    if 'dingtalk' in webhook_url:
+        payload = {"msgtype": "text", "text": {"content": content}}
+    elif 'feishu' in webhook_url or 'lark' in webhook_url:
+        payload = {"msg_type": "text", "content": {"text": content}}
+    else:
+        payload = {"msgtype": "text", "text": {"content": content}}
+        
+    requests.post(webhook_url, json=payload, headers=headers)
 
 if __name__ == "__main__":
-    data = get_stock_data()
+    print("开始运行...")
+    data = get_stock_data_sina()
     
     if isinstance(data, str):
-        # 如果是字符串，说明报错了
-        msg = f"【股票】❌ 运行出错:\n{data}"
+        msg = f"❌ 运行出错:\n{data}"
     else:
-        # 如果是列表，说明成功了
-        msg = f"【股票】🔥 AI智能体/AI概念 热度 Top10\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-        for i, item in enumerate(data):
-            # 格式化输出
-            color = "🟢" if item['change'] > 0 else "🔴"
-            msg += f"{i+1}. {item['name']} | 涨幅:{item['change']}% | 热度:{item['score']}\n"
+        msg = f"🔥 AI 核心股票池监控\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+        for i, row in data.iterrows():
+            color = "🟢" if row['涨跌幅'] > 0 else "🔴"
+            msg += f"{color} {row['名称']} ({row['代码']}) \n   现价:{row['现价']} | 涨幅:{row['涨跌幅']}%\n"
     
     print(msg)
     send_message(msg)
