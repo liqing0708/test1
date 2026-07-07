@@ -1,0 +1,26 @@
+name: AIAgent Stock Bot
+
+on:
+  schedule:
+    - cron: '0 3 * * 1-5'  # UTC 3点 = 北京时间 11点 (周一到周五)
+  workflow_dispatch:       # 允许手动点击运行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: |
+          pip install akshare pandas requests
+          
+      - name: Run Bot
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: python main.py
